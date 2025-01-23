@@ -7,7 +7,7 @@ from ieeg.auth import Session  # >_ cd ieegy --> pip install -e .
 import argparse
 
 
-def main(total_mins, remove_nan=True):
+def main(total_mins, remove_nan=False):
     dotenv.load_dotenv()
 
     session = Session(os.getenv("IEEG_USERNAME"), os.getenv("IEEG_PASSWORD"))
@@ -63,11 +63,11 @@ def main(total_mins, remove_nan=True):
         print(f"Dataset shape after NaN removal: {full_df.shape}")
 
     # Save dataset to CSV
-    data_filename = "data.csv"
+    data_filename = "data_no_nan.csv" if remove_nan else "data.csv"
 
     # Create path relative to script location
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    main_dir = os.path.dirname(os.path.dirname(script_dir))
+    main_dir = os.path.dirname(script_dir)
     data_dir = os.path.join(main_dir, "data", "input")
 
     # Create directories if they don't exist
@@ -75,7 +75,8 @@ def main(total_mins, remove_nan=True):
 
     data_filepath = os.path.join(data_dir, data_filename)
 
-    full_df.to_csv(data_filepath)
+    # Save without index column
+    full_df.to_csv(data_filepath, index=False)
     print(f"Data saved to {data_filepath}")
 
 
@@ -83,9 +84,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pull data from IEEG dataset")
     parser.add_argument("minutes", type=int, help="Number of minutes to pull")
     parser.add_argument(
-        "--keep-nan",
+        "--no-nan",
         action="store_true",
-        help="Keep NaN values in the dataset (default: remove NaN)",
+        help="Remove NaN values from the dataset (default: keep NaN)",
     )
 
     args = parser.parse_args()
@@ -94,4 +95,4 @@ if __name__ == "__main__":
         print("Error: Number of minutes must be positive")
         sys.exit(1)
 
-    main(args.minutes, remove_nan=not args.keep_nan)
+    main(args.minutes, remove_nan=args.no_nan)
