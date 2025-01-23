@@ -16,3 +16,8 @@ venv/
 data/input/
 data/output/
 *.mef
+/.venv
+.env
+/build
+/ieegpy
+/dist
