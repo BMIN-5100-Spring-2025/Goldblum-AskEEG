@@ -6,3 +6,4 @@ requests
 numpy 
 deprecation 
 pennprov
+matplotlib
