@@ -28,3 +28,25 @@ python3 main/app.py
 ```
 pytest
 ```
+
+## EEG Feature Processing
+### Install system dependencies for YASA
+#### On macOS:
+```bash
+brew install libomp
+```
+
+### Database Configuration
+#### Add the following to a .env file:
+```bash
+DB_HOST=localhost
+DB_PORT=<YOUR_DATABASE_PORT>
+DB_NAME=<YOUR_DATABASE_NAME>
+DB_USER=<YOUR_DATABASE_USERNAME>
+DB_PASSWORD=<YOUR_DATABASE_PASSWORD>
+```
+
+#### Run the postgres container:
+```bash
+docker compose -f docker-compose.db.yml up -d
+```
