@@ -138,6 +138,20 @@ def yasa_postgres_pipeline(conn):
         predicted_c3, predicted_cz, predicted_c4
     )
 
+    # Create a DataFrame with the predictions
+    results_df = pd.DataFrame({"consensus": consensus_stages})
+
+    # Create output directory if it doesn't exist
+    output_dir = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)), "data", "output"
+    )
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Save to CSV
+    output_path = os.path.join(output_dir, "yasa_predictions.csv")
+    results_df.to_csv(output_path, index=False)
+    print(f"Predictions saved to {output_path}")
+
     return {
         "C3": predicted_c3,
         "Cz": predicted_cz,
@@ -150,7 +164,7 @@ if __name__ == "__main__":
     conn = get_db_connection()
     try:
         predictions = yasa_postgres_pipeline(conn)
-        print("YASA predictions from PostgreSQL data:")
+        print("\nYASA predictions from PostgreSQL data:")
         print("C3:", predictions["C3"])
         print("Cz:", predictions["Cz"])
         print("C4:", predictions["C4"])
