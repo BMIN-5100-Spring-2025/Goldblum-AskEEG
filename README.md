@@ -1,42 +1,19 @@
-# BMIN 5100 Template Repository
-Template repository for BMIN 5100 Projects.
+# BMIN 5100 Project: AskEEG
 
-Contains a minimal Python project that reads a CSV from an input directory and
-outputs a CSV to an output directory, suitable for an analysis workflow on Pennsieve.
-
-Use this template to create your own GitHub repository by clicking the green
-`Use this template` button towards the top-right of this page.
-
-### Setup
-Install the following:
-- `python3` (latest)
-- `pip` (or `pip3`, latest)
-
-Then, run the following
+### Create a virtual environment and install Python dependencies
 ```
 python3 -m venv .venv
-source venv/bin/activate
-pip3 install -r requirements.txt
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-### Running the application
-```
-python3 main/app.py
-```
-
-### Testing the application
-```
-pytest
-```
-
-## EEG Feature Processing
 ### Install system dependencies for YASA
 #### On macOS:
 ```bash
 brew install libomp
 ```
 
-### Database Configuration
+### Configure the database
 #### Add the following to a .env file:
 ```bash
 DB_HOST=localhost
@@ -46,7 +23,25 @@ DB_USER=<YOUR_DATABASE_USERNAME>
 DB_PASSWORD=<YOUR_DATABASE_PASSWORD>
 ```
 
-#### Run the postgres container:
+### Run the database container
 ```bash
 docker compose -f docker-compose.db.yml up -d
+```
+
+### Write EDF data to the database
+```bash
+python3 app/edf_to_postgres.py
+```
+
+### Run the YASA algorithm on the data
+```bash
+python3 app/yasa_from_postgres.py
+```
+*Output:*
+```
+YASA predictions from PostgreSQL data:
+C3: ['W' 'W' 'W' 'R' 'R' 'R' 'W' 'W' 'W' 'W' 'W' 'W' 'W' 'W' 'W' 'W']
+Cz: ['N2' 'N2' 'N2' 'N1' 'N2' 'N1' 'W' 'W' 'W' 'W' 'W' 'N1' 'R' 'R' 'R' 'R']
+C4: ['W' 'W' 'W' 'W' 'N2' 'R' 'R' 'W' 'W' 'W' 'W' 'W' 'W' 'W' 'W' 'W']
+Consensus: ['W', 'W', 'W', nan, 'N2', 'R', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W']
 ```
