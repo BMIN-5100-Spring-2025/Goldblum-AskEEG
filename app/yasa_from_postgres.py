@@ -66,7 +66,6 @@ def fetch_eeg_data(conn, metadata):
     return mne.io.RawArray(data / 1e6, info)  # Assuming data was stored in μV
 
 
-# Add the consensus function from YASA_EPC.py
 def determine_consensus_stage(predicted_c3, predicted_cz, predicted_c4):
     """Determine the consensus stage based on stages from C3, C4, and Cz"""
     consensus_stage = []
