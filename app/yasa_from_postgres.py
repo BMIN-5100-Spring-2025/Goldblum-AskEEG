@@ -3,7 +3,6 @@ import mne
 import yasa
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
 from collections import Counter
 import warnings
 from edf_to_postgres import get_db_connection
