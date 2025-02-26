@@ -14,15 +14,14 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy requirements and install
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install minimal dependencies (avoid extras we don't need)
+RUN pip install --no-cache-dir numpy scipy matplotlib mne
 
-# Copy YASA processing script
-COPY app/yasa_from_edf.py .
+# Copy synchrony script
+COPY app/eeg_synchrony.py .
 
 # Create volume directories
 RUN mkdir -p /app/data/input /app/data/output
 
-# Set entrypoint to run YASA analysis
-CMD ["python", "yasa_from_edf.py"] 
+# Set entrypoint to run synchrony analysis
+CMD ["python", "-u", "eeg_synchrony.py"]

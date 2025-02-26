@@ -1,8 +1,12 @@
 services:
-  yasa-processor:
-    build: .
+  synchrony-analyzer:
+    build:
+      context: .
     volumes:
       - ./data/input:/app/data/input
       - ./data/output:/app/data/output
     environment:
       - EDF_FILENAME=EMU1371_Day02_1_5006_to_5491.edf
+    # Enable interactive mode for debugging
+    tty: true
+    stdin_open: true
