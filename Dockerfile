@@ -14,14 +14,18 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Install minimal dependencies (avoid extras we don't need)
+# Install minimal dependencies
 RUN pip install --no-cache-dir numpy scipy matplotlib mne
 
-# Copy synchrony script
-COPY app/eeg_synchrony.py .
+# Copy application code
+COPY app/ /app/
 
 # Create volume directories
-RUN mkdir -p /app/data/input /app/data/output
+RUN mkdir -p data/input data/output
+
+# Default environment variables
+ENV INPUT_DIR=/data/input
+ENV OUTPUT_DIR=/data/output
 
 # Set entrypoint to run synchrony analysis
 CMD ["python", "-u", "eeg_synchrony.py"]
