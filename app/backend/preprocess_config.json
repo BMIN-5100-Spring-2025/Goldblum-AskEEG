@@ -1,0 +1,45 @@
+{
+    "yasa": {
+        "win": 300,
+        "stride": 300,
+        "reref": "CAR",
+        "pre_whiten": false,
+        "resample": 100,
+        "lowcut": 0.4,
+        "highcut": 30
+    },
+    "alpha_delta_ratio": {
+        "win": 60,
+        "stride": 60,
+        "reref": "CAR",
+        "pre_whiten": false
+    },
+    "spike_detector": {
+        "win": 60,
+        "stride": 60,
+        "reref": "CAR",
+        "pre_whiten": false
+    },
+    "synchrony": {
+        "win": 60,
+        "stride": 60,
+        "reref": "CAR",
+        "pre_whiten": false
+    },
+    "sparcnet": {
+        "win": 10,
+        "stride": 2,
+        "reref": "BIPOLAR",
+        "pre_whiten": false,
+        "resample": 200,
+        "lowcut": 1,
+        "highcut": 40
+    },
+    "wavenet": {
+        "win": 1,
+        "stride": 0.5,
+        "reref": "BIPOLAR",
+        "pre_whiten": true,
+        "resample": 128
+    }
+}

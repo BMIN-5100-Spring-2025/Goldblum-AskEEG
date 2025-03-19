@@ -21,6 +21,7 @@ data/output/
 /build
 /ieegpy
 /dist
+**/node_modules/
 
 # Local .terraform directories
 **/.terraform/*

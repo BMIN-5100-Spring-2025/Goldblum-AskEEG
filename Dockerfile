@@ -18,7 +18,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir numpy scipy matplotlib mne
 
 # Copy application code
-COPY app/ /app/
+COPY etc/ /app/
 
 # Create volume directories
 RUN mkdir -p data/input data/output
