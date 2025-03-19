@@ -337,7 +337,7 @@ def process_channel(
     return np.array(out)
 
 
-def spike_detector(data, fs, **kwargs):
+def spike_detector(data: np.ndarray, fs: int, **kwargs) -> np.ndarray:
     """
     Parameters
     data:           np.NDArray - iEEG recordings (m samples x n channels)

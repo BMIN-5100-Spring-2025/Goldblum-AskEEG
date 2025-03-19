@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
 
@@ -8,6 +8,53 @@ function App() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [history, setHistory] = useState([]);
+    const [tools, setTools] = useState([]);
+    const [toolsLoading, setToolsLoading] = useState(true);
+    const [toolsError, setToolsError] = useState('');
+
+    // Fetch available tools on component mount
+    useEffect(() => {
+        const fetchTools = async () => {
+            try {
+                const result = await axios.get('/api/tools');
+                setTools(result.data.tools);
+                setToolsLoading(false);
+            } catch (err) {
+                setToolsError('Failed to load available tools');
+                console.error(err);
+                setToolsLoading(false);
+
+                // Fallback to hardcoded tools in case API doesn't work yet
+                setTools([
+                    {
+                        name: "synchrony_analyzer",
+                        description: "Analyze brain synchrony between EEG channels using the Kuramoto order parameter. Useful for measuring how synchronized different brain regions are.",
+                        parameters: {
+                            "data": "The EEG data to analyze as a numpy array"
+                        }
+                    },
+                    {
+                        name: "alpha_delta_ratio",
+                        description: "Calculate the ratio of alpha to delta power. This is useful for awareness analysis.",
+                        parameters: {
+                            "data": "The EEG data to analyze as a numpy array",
+                            "fs": "The sampling frequency (Hz) of the data"
+                        }
+                    },
+                    {
+                        name: "spike_detector",
+                        description: "Detect epileptiform spikes in EEG data. This is useful for seizure monitoring and epilepsy diagnosis.",
+                        parameters: {
+                            "data": "The EEG data to analyze as a numpy array",
+                            "fs": "The sampling frequency (Hz) of the data"
+                        }
+                    }
+                ]);
+            }
+        };
+
+        fetchTools();
+    }, []);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -46,10 +93,10 @@ function App() {
 
     // Example queries
     const exampleQueries = [
-        "Run a seizure detector on the last 24 hours of data",
-        "Analyze sleep stages from the last 8 hours",
-        "Calculate spectral power in the alpha band for the last hour",
-        "What's the brain synchrony in delta and theta bands over the last 2 hours?",
+        "Can you detect seizure activity in my brain recordings?",
+        "I'd like to analyze my sleep patterns over the last 8 hours",
+        "What's my alpha to delta ratio?",
+        "Is there high synchrony between my frontal and parietal brain regions?"
     ];
 
     const handleExampleClick = (example) => {
@@ -71,7 +118,7 @@ function App() {
                                 type="text"
                                 value={query}
                                 onChange={(e) => setQuery(e.target.value)}
-                                placeholder="Ask about EEG data (e.g., Run a seizure detector on the last 24 hours)"
+                                placeholder="Ask about EEG data (e.g., Detect seizure activity in my brain recordings)"
                                 disabled={loading}
                             />
                             <button type="submit" disabled={loading}>
@@ -124,11 +171,39 @@ function App() {
                         </div>
                     </section>
                 )}
-            </main>
 
-            <footer className="footer">
-                <p>© {new Date().getFullYear()} AskEEG - Natural Language EEG Analysis</p>
-            </footer>
+                <section className="tools-section">
+                    <h2>Available Analysis Tools</h2>
+                    <p className="tools-description">
+                        AskEEG contains several specialized tools for analyzing your brain activity data.
+                        You can reference these tools in your queries or simply ask questions about your EEG data.
+                    </p>
+                    {toolsLoading ? (
+                        <p>Loading available tools...</p>
+                    ) : toolsError ? (
+                        <p className="error">{toolsError}</p>
+                    ) : (
+                        <div className="tools-list">
+                            {tools.map((tool, index) => (
+                                <div key={index} className="tool-card">
+                                    <h3>{tool.name}</h3>
+                                    <p>{tool.description}</p>
+                                    <div className="tool-parameters">
+                                        <h4>Parameters:</h4>
+                                        <ul>
+                                            {Object.entries(tool.parameters).map(([key, value], i) => (
+                                                <li key={i}>
+                                                    <strong>{key}:</strong> {value}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </section>
+            </main>
         </div>
     );
 }
