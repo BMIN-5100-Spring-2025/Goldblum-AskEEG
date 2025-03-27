@@ -50,3 +50,37 @@ Consensus: ['W', 'W', 'W', nan, 'N2', 'R', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W
 ```bash
 aws s3 cp data/input/EMU1371_Day02_1_5006_to_5491.edf s3://goldblum-askeeg/data/input/EMU1371_Day02_1_5006_to_5491.edf
 ```
+
+### Push Docker Image to ECR
+1. Get account ID and region information
+```bash
+aws sts get-caller-identity
+
+# Returns:
+# "UserId": "<USER-ID>",
+# "Account": "<ACCOUNT>",
+# "Arn": "<ARN>"
+```
+
+2. Build the Docker image
+```bash
+docker build -t <IMAGE>:<TAG> .
+# docker build -t goldblum_askeeg:v1 .
+```
+
+3. Authenticate Docker to ECR
+```bash
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com
+```
+
+4. Tag Docker image for ECR
+```bash
+docker tag goldblum_askeeg:v1 <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/<IMAGE>:<TAG>
+# docker tag goldblum_askeeg:v1 <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/goldblum_askeeg:v1
+```
+
+5. Push to ECR
+```bash
+docker push <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/<IMAGE>:<TAG>
+# docker push <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/goldblum_askeeg:v1
+```
