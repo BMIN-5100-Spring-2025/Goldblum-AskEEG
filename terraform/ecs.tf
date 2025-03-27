@@ -66,9 +66,4 @@ resource "aws_ecs_task_definition" "goldblum_askeeg" {
   ephemeral_storage {
     size_in_gib = 25
   }
-
-  tags = {
-    Name  = "goldblum-askeeg"
-    Owner = element(split("/", data.aws_caller_identity.current.arn), 1)
-  }
 } 

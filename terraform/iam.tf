@@ -14,11 +14,6 @@ resource "aws_iam_role" "ecs_task_execution_role" {
       }
     ]
   })
-
-  tags = {
-    Name  = "goldblum_askeeg_ecs_execution_role"
-    Owner = element(split("/", data.aws_caller_identity.current.arn), 1)
-  }
 }
 
 # Attach the ECS Task Execution Role Policy to the execution role
@@ -67,11 +62,6 @@ resource "aws_iam_role" "ecs_task_role" {
       }
     ]
   })
-
-  tags = {
-    Name  = "goldblum_askeeg_ecs_task_role"
-    Owner = element(split("/", data.aws_caller_identity.current.arn), 1)
-  }
 }
 
 # Add S3 permissions to the task role
