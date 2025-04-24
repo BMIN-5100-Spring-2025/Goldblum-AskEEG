@@ -44,6 +44,26 @@ resource "aws_iam_role_policy" "ecs_task_execution_ecr_policy" {
   })
 }
 
+# CloudWatch Logs permissions for the execution role
+resource "aws_iam_role_policy" "ecs_task_execution_logs_policy" {
+  name = "goldblum_askeeg_ecs_execution_logs_policy"
+  role = aws_iam_role.ecs_task_execution_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Effect   = "Allow"
+        Resource = "arn:aws:logs:*:*:log-group:/ecs/goldblum-askeeg:*"
+      }
+    ]
+  })
+}
+
 # Additional permissions for EC2 needed for Fargate
 resource "aws_iam_role_policy" "ecs_task_execution_ec2_policy" {
   name = "goldblum_askeeg_ecs_execution_ec2_policy"
