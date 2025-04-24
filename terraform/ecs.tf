@@ -29,6 +29,10 @@ resource "aws_ecs_task_definition" "goldblum_askeeg" {
         {
           name  = "OUTPUT_DIR"
           value = "/data/output"
+        },
+        {
+          name  = "RUN_MODE"
+          value = "fargate"
         }
       ]
       

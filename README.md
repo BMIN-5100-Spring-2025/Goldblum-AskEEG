@@ -1,53 +1,44 @@
 # BMIN 5100 Project: AskEEG
 
-### Create a virtual environment and install Python dependencies
-```
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+## Environment Variables
+
+### Copy the .env.example file to .env and fill in the necessary values:
+```bash
+cp .env.example .env
 ```
 
-### Install system dependencies for YASA
-#### On macOS:
+## Running EEG Synchrony Analysis
+
+### 1. Run Locally with Docker
 ```bash
-brew install libomp
+# Build the Docker image
+docker build -t goldblum_askeeg:v1 .
+
+# Run in local mode (no S3 interaction)
+docker run -v $(pwd)/data:/data goldblum_askeeg:v1
 ```
 
-### Configure the database
-#### Add the following to a .env file:
+### 2. Run Using AWS Fargate
 ```bash
-DB_HOST=localhost
-DB_PORT=<YOUR_DATABASE_PORT>
-DB_NAME=<YOUR_DATABASE_NAME>
-DB_USER=<YOUR_DATABASE_USERNAME>
-DB_PASSWORD=<YOUR_DATABASE_PASSWORD>
+# Alternatively, run with S3 integration for testing
+docker run -v ~/.aws:/root/.aws \
+  -e RUN_MODE=fargate \
+  -e S3_BUCKET_NAME=goldblum-askeeg \
+  goldblum_askeeg:v1
 ```
 
-### Run the database container
-```bash
-docker compose -f docker-compose.db.yml up -d
-```
+For Fargate execution, the application will automatically:
+- Download input data from S3 bucket (`data/input/` prefix)
+- Process the EEG data
+- Upload results to S3 bucket (`data/output/` prefix)
 
-### Write EDF data to the database
-```bash
-python3 app/edf_to_postgres.py
-```
+The ECS task definition is configured with necessary environment variables.
 
-### Run the YASA algorithm on the data
-```bash
-python3 app/yasa_from_postgres.py
-```
-*Output:*
-```
-YASA predictions from PostgreSQL data:
-C3: ['W' 'W' 'W' 'R' 'R' 'R' 'W' 'W' 'W' 'W' 'W' 'W' 'W' 'W' 'W' 'W']
-Cz: ['N2' 'N2' 'N2' 'N1' 'N2' 'N1' 'W' 'W' 'W' 'W' 'W' 'N1' 'R' 'R' 'R' 'R']
-C4: ['W' 'W' 'W' 'W' 'N2' 'R' 'R' 'W' 'W' 'W' 'W' 'W' 'W' 'W' 'W' 'W']
-Consensus: ['W', 'W', 'W', nan, 'N2', 'R', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W']
-```
+## AWS Setup Instructions
 
 ### Upload data to AWS S3
 ```bash
+# Upload EDF file for Fargate processing
 aws s3 cp data/input/EMU1371_Day02_1_5006_to_5491.edf s3://goldblum-askeeg/data/input/EMU1371_Day02_1_5006_to_5491.edf
 ```
 
@@ -64,8 +55,7 @@ aws sts get-caller-identity
 
 2. Build the Docker image
 ```bash
-docker build -t <IMAGE>:<TAG> .
-# docker build -t goldblum_askeeg:v1 .
+docker build -t goldblum_askeeg:v1 .
 ```
 
 3. Authenticate Docker to ECR
@@ -75,12 +65,10 @@ aws ecr get-login-password --region us-east-1 | docker login --username AWS --pa
 
 4. Tag Docker image for ECR
 ```bash
-docker tag goldblum_askeeg:v1 <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/<IMAGE>:<TAG>
-# docker tag goldblum_askeeg:v1 <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/goldblum_askeeg:v1
+docker tag goldblum_askeeg:v1 <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/goldblum_askeeg:v1
 ```
 
 5. Push to ECR
 ```bash
-docker push <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/<IMAGE>:<TAG>
-# docker push <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/goldblum_askeeg:v1
+docker push <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/goldblum_askeeg:v1
 ```
