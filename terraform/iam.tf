@@ -22,6 +22,28 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# ECR permissions for pulling container images
+resource "aws_iam_role_policy" "ecs_task_execution_ecr_policy" {
+  name = "goldblum_askeeg_ecs_execution_ecr_policy"
+  role = aws_iam_role.ecs_task_execution_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 # Additional permissions for EC2 needed for Fargate
 resource "aws_iam_role_policy" "ecs_task_execution_ec2_policy" {
   name = "goldblum_askeeg_ecs_execution_ec2_policy"
