@@ -29,6 +29,7 @@ ENV INPUT_DIR=/data/input
 ENV OUTPUT_DIR=/data/output
 ENV RUN_MODE=local
 ENV S3_BUCKET_NAME=goldblum-askeeg
+ENV SESSION_ID=""
 
 # Set entrypoint to run synchrony analysis
 CMD ["python", "-u", "eeg_synchrony.py"]

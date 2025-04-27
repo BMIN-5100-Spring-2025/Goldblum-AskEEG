@@ -329,8 +329,13 @@ def process_edf_file():
     output_directory = os.getenv("OUTPUT_DIR", "./data/output")
     run_mode = os.getenv("RUN_MODE", "local").lower()
 
+    # Get session ID if available
+    session_id = os.getenv("SESSION_ID")
+
     # Print debug information
     logger.info(f"Running in {run_mode} mode")
+    if session_id:
+        logger.info(f"Session ID: {session_id}")
     logger.info(f"Current working directory: {os.getcwd()}")
     logger.info(f"Input directory: {input_directory}")
     logger.info(f"Output directory: {output_directory}")
