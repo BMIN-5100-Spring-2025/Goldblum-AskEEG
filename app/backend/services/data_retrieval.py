@@ -162,6 +162,7 @@ class DataRetrievalService:
                 "samples": 0,
                 "duration_seconds": 0,
                 "sampling_rate": metadata_sampling_rate,
+                "raw_dataframe": data_frame,
             }
 
         # Get basic information
@@ -224,6 +225,7 @@ class DataRetrievalService:
                 float(sampling_rate) if sampling_rate is not None else None
             ),
             "channels": {},
+            "raw_dataframe": data_frame,
         }
 
         # Safely convert timestamps to milliseconds

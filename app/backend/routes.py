@@ -6,6 +6,8 @@ import os
 from functools import wraps
 import json
 import datetime
+import pandas as pd
+import numpy as np
 
 # Create a logger
 logger = logging.getLogger("askeeg_routes")
@@ -487,33 +489,69 @@ def retrieve_data_segment():
             }
             logger.info(f"Retrieved channel names: {channel_names}")
 
-            # Create DataFrame with time as the first column
-            import pandas as pd
-            import numpy as np
+            # Also create reverse mapping for lookup by part of the ID
+            channel_id_to_name = {}
+            for channel_id, name in channel_names.items():
+                # Store the full ID
+                channel_id_to_name[channel_id] = name
+                # Also store just the UUID part if it has a format like 'N:channel:UUID'
+                if ":" in channel_id:
+                    uuid_part = channel_id.split(":")[-1]
+                    channel_id_to_name[uuid_part] = name
 
-            logger.info("Creating DataFrame from retrieved data")
+            logger.info(f"Channel ID to name mapping: {channel_id_to_name}")
 
             # Check if times list is empty
             if not times:
                 logger.warning("No time points in the retrieved data")
                 return jsonify({"error": "Retrieved data has no time points"}), 500
 
-            # Create a DataFrame with time as the index
+            # Create a DataFrame from the data returned by Pennsieve
             try:
-                df = pd.DataFrame(index=pd.to_datetime(np.array(times), unit="ms"))
-                logger.info(f"DataFrame created with {len(df)} rows")
+                # Get the raw dataframe directly from the data retrieval service
+                raw_df = data.get("raw_dataframe")
 
-                # Add each channel as a column
-                for channel_id, values in channel_data.items():
-                    channel_name = channel_names.get(
-                        channel_id, f"Channel {channel_id}"
-                    )
-                    df[channel_name] = values
-                    logger.info(f"Added channel {channel_name} to DataFrame")
+                if raw_df is not None and not raw_df.empty:
+                    # Use the raw dataframe directly
+                    df = raw_df
+                    logger.info(f"Using raw dataframe with {len(df)} rows")
+                else:
+                    # Fallback to the previous approach if raw_dataframe is not available
+                    df = pd.DataFrame(index=pd.to_datetime(np.array(times), unit="ms"))
+                    logger.info(f"Created new dataframe with {len(df)} rows")
+
+                # If df doesn't have data columns yet, add them
+                if len(df.columns) == 0:
+                    # Add each channel as a column
+                    for channel_id, values in channel_data.items():
+                        channel_name = channel_names.get(
+                            channel_id, f"Channel {channel_id}"
+                        )
+                        df[channel_name] = values
+                        logger.info(f"Added channel {channel_name} to DataFrame")
+                else:
+                    # Rename existing columns to use channel names
+                    column_mapping = {}
+                    for col in df.columns:
+                        if col in channel_id_to_name:
+                            column_mapping[col] = channel_id_to_name[col]
+
+                    if column_mapping:
+                        df.rename(columns=column_mapping, inplace=True)
+                        logger.info(
+                            f"Renamed columns using channel names: {list(column_mapping.values())}"
+                        )
+                    else:
+                        logger.warning(
+                            f"No column mapping created. Column names: {list(df.columns)}"
+                        )
+                        # Use original channel names if we can't map them
+                        logger.info("Falling back to using original channel names")
 
                 # Save to CSV
                 logger.info(f"Saving DataFrame to CSV: {output_path}")
-                df.to_csv(output_path)
+                # Use index=True to include the timestamp index as the first column
+                df.to_csv(output_path, index=True, index_label="timestamp")
                 logger.info("CSV file saved successfully")
 
             except Exception as e:
@@ -535,8 +573,7 @@ def retrieve_data_segment():
                 segment_metadata = {
                     "dataset_id": dataset_id,
                     "package_id": package_id,
-                    "channel_ids": channel_ids,
-                    "channel_names": channel_names,
+                    "channel_ids": channel_names,  # Map of channel IDs to channel names
                     "requested_start_time_seconds": start_time_seconds,
                     "requested_end_time_seconds": end_time_seconds,
                     "requested_duration_seconds": (
