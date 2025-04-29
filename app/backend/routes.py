@@ -4,6 +4,8 @@ from app.backend.services.pennsieve_metadata import PennsieveMetadataService
 from app.backend.services.data_retrieval import DataRetrievalService
 import os
 from functools import wraps
+import json
+import datetime
 
 # Create a logger
 logger = logging.getLogger("askeeg_routes")
@@ -20,6 +22,11 @@ data_retrieval_service = None
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        # Check if we're in development mode
+        dev_mode = (
+            os.getenv("FLASK_ENV") == "development" or os.getenv("DEBUG") == "True"
+        )
+
         token = None
         auth_header = request.headers.get("Authorization")
 
@@ -29,6 +36,11 @@ def token_required(f):
             logger.info(f"Auth token received: {token[:10]}...")
         else:
             logger.warning(f"Missing or malformed Authorization header: {auth_header}")
+
+        # In development mode, bypass token requirement
+        if dev_mode:
+            logger.info("Development mode: bypassing token verification")
+            return f(*args, **kwargs)
 
         if not token:
             logger.warning("Authentication token is missing")
@@ -292,3 +304,288 @@ def get_results(job_id):
     except Exception as e:
         logger.error(f"Error getting results: {e}")
         return jsonify({"error": str(e), "message": "Failed to retrieve results"}), 500
+
+
+@api_bp.route("/retrieve-data-segment", methods=["POST"])
+@token_required
+def retrieve_data_segment():
+    """
+    Retrieve a specified data segment from Pennsieve and save it to the local filesystem.
+
+    Expects JSON with:
+    - dataset_id: Pennsieve dataset ID (optional if set in environment)
+    - package_id: Pennsieve package ID (optional if set in environment)
+    - channel_ids: List of channel IDs to include
+    - start_time: Start time in microseconds (absolute time)
+    - end_time: End time in microseconds (absolute time)
+    - start_time_seconds: Start time in seconds (relative to recording start)
+    - end_time_seconds: End time in seconds (relative to recording start)
+    - output_filename: Name for the output file (without extension)
+
+    Returns:
+    - JSON response with status and output file path
+    """
+    # Initialize services if needed - declare global variables first
+    global pennsieve_service, data_retrieval_service
+
+    logger.info("Entered retrieve_data_segment endpoint")
+
+    try:
+        request_data = request.get_json()
+        logger.info(f"Request data: {request_data}")
+
+        if not request_data:
+            logger.warning("No data provided in request")
+            return jsonify({"error": "No data provided"}), 400
+
+        # Get parameters from request
+        dataset_id = request_data.get("dataset_id") or os.getenv("PENNSIEVE_DATASET")
+        package_id = request_data.get("package_id") or os.getenv("PENNSIEVE_PACKAGE")
+        channel_ids = request_data.get("channel_ids", [])
+        output_filename = request_data.get("output_filename", "eeg_segment")
+
+        logger.info(
+            f"Processing request - dataset: {dataset_id}, package: {package_id}, channels: {len(channel_ids)}"
+        )
+
+        # Get time parameters - accept either absolute microseconds or relative seconds
+        start_time = request_data.get("start_time")
+        end_time = request_data.get("end_time")
+        start_time_seconds = request_data.get("start_time_seconds")
+        end_time_seconds = request_data.get("end_time_seconds")
+        is_relative_time = request_data.get(
+            "is_relative_time", True
+        )  # Default to relative time
+
+        logger.info(
+            f"Time parameters - start_time: {start_time}, end_time: {end_time}, "
+            f"start_time_seconds: {start_time_seconds}, end_time_seconds: {end_time_seconds}, "
+            f"is_relative_time: {is_relative_time}"
+        )
+
+        # When using relative time, prioritize seconds values
+        if is_relative_time:
+            # If we're using relative time, we want to work with seconds directly
+            # (not microseconds as previously assumed)
+            if start_time_seconds is not None:
+                start_time = start_time_seconds
+                logger.info(f"Using relative start_time_seconds: {start_time}")
+
+            if end_time_seconds is not None:
+                end_time = end_time_seconds
+                logger.info(f"Using relative end_time_seconds: {end_time}")
+        else:
+            # Only convert seconds to microseconds if absolute times are not provided
+            if start_time is None and start_time_seconds is not None:
+                start_time = int(start_time_seconds * 1000000)
+                logger.info(
+                    f"Converted start_time_seconds to microseconds: {start_time}"
+                )
+
+            if end_time is None and end_time_seconds is not None:
+                end_time = int(end_time_seconds * 1000000)
+                logger.info(f"Converted end_time_seconds to microseconds: {end_time}")
+
+        # Log the final time values we'll use
+        logger.info(
+            f"Final time values - start_time: {start_time}, end_time: {end_time}, is_relative_time: {is_relative_time}"
+        )
+
+        # Validate required parameters
+        if not dataset_id:
+            logger.warning("Dataset ID is required but not provided")
+            return jsonify({"error": "Dataset ID is required"}), 400
+        if not package_id:
+            logger.warning("Package ID is required but not provided")
+            return jsonify({"error": "Package ID is required"}), 400
+        if not channel_ids:
+            logger.warning("No channel IDs provided")
+            return jsonify({"error": "At least one channel ID is required"}), 400
+        if start_time is None:
+            logger.warning("Start time is required but not provided")
+            return jsonify({"error": "Start time is required"}), 400
+        if end_time is None:
+            logger.warning("End time is required but not provided")
+            return jsonify({"error": "End time is required"}), 400
+
+        # Ensure start_time is before end_time
+        if start_time >= end_time:
+            logger.warning(
+                f"Start time {start_time} must be before end time {end_time}"
+            )
+            return jsonify({"error": "Start time must be before end time"}), 400
+
+        if pennsieve_service is None:
+            logger.info("Initializing services")
+            init_services()
+
+        # Retrieve the data from Pennsieve
+        logger.info(
+            f"Retrieving data segment from Pennsieve: dataset={dataset_id}, "
+            + f"package={package_id}, channels={len(channel_ids)}, "
+            + f"start={start_time}, end={end_time}"
+        )
+
+        try:
+            # Get data from Pennsieve
+            logger.info("Calling data_retrieval_service.get_data_range")
+            data = data_retrieval_service.get_data_range(
+                dataset_id=dataset_id,
+                package_id=package_id,
+                channel_ids=channel_ids,
+                start_time=start_time,
+                end_time=end_time,
+                force_refresh=False,
+                is_relative_time=is_relative_time,  # Pass through the relative time flag
+            )
+            logger.info(
+                f"Data retrieved successfully: {len(data.get('channels', {}))} channels, {data.get('samples', 0)} samples"
+            )
+        except Exception as e:
+            logger.error(f"Error retrieving data from Pennsieve: {e}", exc_info=True)
+            return jsonify({"error": f"Failed to retrieve data: {str(e)}"}), 500
+
+        # Check if data is empty
+        if data.get("is_empty", True):
+            logger.warning("No data found for the specified parameters")
+            return jsonify({"error": "No data found for the specified parameters"}), 404
+
+        try:
+            # Create the data/input directory if it doesn't exist
+            input_dir = os.path.join(os.getcwd(), "data", "input")
+            os.makedirs(input_dir, exist_ok=True)
+            logger.info(f"Created/verified input directory: {input_dir}")
+
+            # Create the output file path
+            output_csv = f"{output_filename}.csv"
+            output_path = os.path.join(input_dir, output_csv)
+            logger.info(f"Output file path: {output_path}")
+
+            # Convert the data to a pandas DataFrame for saving to CSV
+            times = data.get("times", [])  # Times in milliseconds
+            channel_data = data.get("channels", {})
+            logger.info(
+                f"Processing data: {len(times)} timestamps, {len(channel_data)} channels"
+            )
+
+            # Get channel metadata for the header
+            channel_info = data_retrieval_service.get_channel_info(
+                dataset_id, package_id
+            )
+            channel_names = {
+                channel["id"]: channel["name"]
+                for channel in channel_info
+                if channel["id"] in channel_ids
+            }
+            logger.info(f"Retrieved channel names: {channel_names}")
+
+            # Create DataFrame with time as the first column
+            import pandas as pd
+            import numpy as np
+
+            logger.info("Creating DataFrame from retrieved data")
+
+            # Check if times list is empty
+            if not times:
+                logger.warning("No time points in the retrieved data")
+                return jsonify({"error": "Retrieved data has no time points"}), 500
+
+            # Create a DataFrame with time as the index
+            try:
+                df = pd.DataFrame(index=pd.to_datetime(np.array(times), unit="ms"))
+                logger.info(f"DataFrame created with {len(df)} rows")
+
+                # Add each channel as a column
+                for channel_id, values in channel_data.items():
+                    channel_name = channel_names.get(
+                        channel_id, f"Channel {channel_id}"
+                    )
+                    df[channel_name] = values
+                    logger.info(f"Added channel {channel_name} to DataFrame")
+
+                # Save to CSV
+                logger.info(f"Saving DataFrame to CSV: {output_path}")
+                df.to_csv(output_path)
+                logger.info("CSV file saved successfully")
+
+            except Exception as e:
+                logger.error(
+                    f"Error creating DataFrame or saving to CSV: {e}", exc_info=True
+                )
+                return jsonify({"error": f"Error processing data: {str(e)}"}), 500
+
+            # Create metadata file with information about the data segment
+            try:
+                metadata_filename = f"{output_filename}.meta.json"
+                metadata_path = os.path.join(input_dir, metadata_filename)
+                logger.info(f"Creating metadata file: {metadata_path}")
+
+                # Get package metadata
+                pkg_metadata = pennsieve_service.get_metadata(dataset_id, package_id)
+
+                # Build segment metadata
+                segment_metadata = {
+                    "dataset_id": dataset_id,
+                    "package_id": package_id,
+                    "channel_ids": channel_ids,
+                    "channel_names": channel_names,
+                    "requested_start_time_seconds": start_time_seconds,
+                    "requested_end_time_seconds": end_time_seconds,
+                    "requested_duration_seconds": (
+                        end_time_seconds - start_time_seconds
+                        if end_time_seconds is not None
+                        and start_time_seconds is not None
+                        else None
+                    ),
+                    "is_relative_time": is_relative_time,
+                    "absolute_start_time_ns_epoch": pkg_metadata.get(
+                        "time_range", {}
+                    ).get("start"),
+                    "absolute_end_time_ns_epoch": pkg_metadata.get(
+                        "time_range", {}
+                    ).get("end"),
+                    "retrieved_duration_seconds": int(data.get("duration_seconds")/1e6),
+                    "sampling_rate": pkg_metadata.get("time_range", {}).get(
+                        "sampling_rate"
+                    ),
+                    "samples": data.get("samples", 0),
+                    "retrieved_at": datetime.datetime.now().isoformat(),
+                }
+
+                with open(metadata_path, "w") as f:
+                    json.dump(segment_metadata, f, indent=2)
+                logger.info("Metadata file created successfully")
+
+            except Exception as e:
+                logger.error(f"Error creating metadata file: {e}", exc_info=True)
+                # Continue even if metadata file creation fails
+
+            # Get file size
+            try:
+                file_size = os.path.getsize(output_path)
+                logger.info(f"File size: {file_size} bytes")
+            except Exception as e:
+                logger.error(f"Error getting file size: {e}")
+                file_size = 0
+
+            # Return success response with file path
+            relative_path = os.path.join("data", "input", output_csv)
+            response_data = {
+                "success": True,
+                "output_path": relative_path,
+                "samples": data.get("samples", 0),
+                "duration_seconds": data.get(
+                    "duration_seconds", end_time_seconds - start_time_seconds
+                ),
+                "file_size_bytes": file_size,
+            }
+            logger.info(f"Returning success response: {response_data}")
+            return jsonify(response_data), 200
+
+        except Exception as e:
+            logger.error(f"Error processing data for saving: {e}", exc_info=True)
+            return jsonify({"error": f"Error saving data: {str(e)}"}), 500
+
+    except Exception as e:
+        logger.error(f"Error processing data segment retrieval: {e}", exc_info=True)
+        return jsonify({"error": f"Failed to process request: {str(e)}"}), 500

@@ -5,6 +5,9 @@ from app.backend import create_app
 # Load environment variables
 load_dotenv()
 
+# Set development environment
+os.environ["DEBUG"] = "True"
+
 # Create Flask application
 app = create_app()
 

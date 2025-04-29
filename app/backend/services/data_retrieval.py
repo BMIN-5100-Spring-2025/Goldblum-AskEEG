@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import datetime
 from dotenv import load_dotenv
+import time
 
 # Load environment variables
 load_dotenv()
@@ -43,10 +44,16 @@ class DataRetrievalService:
             dataset_id (str, optional): Pennsieve dataset ID
             package_id (str, optional): Pennsieve package ID
             channel_ids (list, optional): List of channel IDs to retrieve
-            start_time (int): Start time in microseconds
-            end_time (int): End time in microseconds
+            start_time (int/float): Time value
+                             - With is_relative_time=True: seconds from start of recording
+                             - With is_relative_time=False: absolute microseconds since Unix epoch
+            end_time (int/float): Time value
+                           - With is_relative_time=True: seconds from start of recording
+                           - With is_relative_time=False: absolute microseconds since Unix epoch
             force_refresh (bool): Force refresh of cached data
-            is_relative_time (bool): Whether the time values are relative to the start of recording
+            is_relative_time (bool): Whether the time values are relative to the start of recording.
+                                    If True (default), times are in seconds from beginning of recording.
+                                    If False, times are absolute microseconds since Unix epoch.
 
         Returns:
             dict: Dictionary containing the data and metadata
@@ -70,35 +77,22 @@ class DataRetrievalService:
             # Get dataset object reference
             dataset = pennsieve_client.dataset
 
+            # Get metadata
+            metadata = self.metadata_service.get_metadata(dataset_id, package_id)
+
             # If no channel IDs provided, get all available channels
             if not channel_ids:
-                metadata = self.metadata_service.get_metadata(dataset_id, package_id)
-                channel_ids = [channel["id"] for channel in metadata["channels"]]
+                channel_ids = [
+                    channel["id"] for channel in metadata.get("channels", [])
+                ]
 
             if not channel_ids:
                 raise ValueError("No channels found for the specified package")
 
-            # If no start_time or end_time provided, try to get from metadata
-            if start_time is None or end_time is None:
-                metadata = self.metadata_service.get_metadata(dataset_id, package_id)
-                time_range = metadata.get("time_range", {})
-
-                if time_range:
-                    # Use metadata time range if available
-                    if start_time is None:
-                        start_time = time_range.get("start", 0)
-                    if end_time is None:
-                        end_time = time_range.get("end")
-
-                # If we still don't have a valid time range, use defaults
-                if start_time is None:
-                    start_time = 0
-                if end_time is None:
-                    # Default to 10 seconds if we can't determine end time
-                    end_time = start_time + (10 * 1000000)  # 10 seconds in microseconds
-                    logger.warning(
-                        f"Using default end_time: start + 10 seconds ({end_time})"
-                    )
+            # Get sampling rate from metadata
+            sampling_rate = metadata.get("time_range", {}).get("sampling_rate")
+            if sampling_rate:
+                logger.info(f"Package sampling rate from metadata: {sampling_rate} Hz")
 
             # Log the request details
             logger.info(
@@ -108,7 +102,7 @@ class DataRetrievalService:
                 f"force_refresh={force_refresh}, is_relative_time={is_relative_time}"
             )
 
-            # Get data from Pennsieve
+            # Get data from Pennsieve - always using the is_relative_time parameter as provided
             data_frame = pennsieve_client.timeseries.getRangeForChannels(
                 dataset,
                 package_id,
@@ -120,62 +114,150 @@ class DataRetrievalService:
             )
 
             # Process the data
-            return self._process_data_frame(data_frame, channel_ids)
+            return self._process_data_frame(
+                data_frame, channel_ids, dataset_id, package_id
+            )
 
         except Exception as e:
             logger.error(f"Error retrieving data from Pennsieve: {e}")
             raise
 
-    def _process_data_frame(self, data_frame, channel_ids):
+    def _process_data_frame(
+        self, data_frame, channel_ids, dataset_id=None, package_id=None
+    ):
         """
         Process the data frame returned from Pennsieve
 
         Args:
             data_frame (pandas.DataFrame): DataFrame from Pennsieve
             channel_ids (list): List of channel IDs in the data
+            dataset_id (str, optional): Pennsieve dataset ID
+            package_id (str, optional): Pennsieve package ID
 
         Returns:
             dict: Processed data with additional information
         """
+        # Get metadata sampling rate if available
+        metadata_sampling_rate = None
+        if dataset_id and package_id:
+            try:
+                metadata = self.metadata_service.get_metadata(dataset_id, package_id)
+                metadata_sampling_rate = metadata.get("sampling_rate")
+                if metadata_sampling_rate:
+                    logger.info(
+                        f"Using sampling rate from metadata: {metadata_sampling_rate} Hz"
+                    )
+            except Exception as e:
+                logger.warning(f"Could not get sampling rate from metadata: {e}")
+
         # Check if data is empty
-        if data_frame.empty:
+        if data_frame is None or data_frame.empty:
+            logger.warning(
+                f"Empty data frame returned for time range request: {len(channel_ids)} channels"
+            )
             return {
                 "data": None,
                 "is_empty": True,
                 "channels": channel_ids,
                 "samples": 0,
                 "duration_seconds": 0,
+                "sampling_rate": metadata_sampling_rate,
             }
 
         # Get basic information
         start_time = data_frame.index[0]
         end_time = data_frame.index[-1]
-        duration_seconds = (end_time - start_time).total_seconds()
         sample_count = len(data_frame)
 
-        # Get sampling rate (samples per second)
-        if sample_count > 1:
+        logger.info(
+            f"Data frame received with {sample_count} samples across {len(data_frame.columns)} channels"
+        )
+
+        # Calculate duration_seconds, handle different types that might be returned
+        try:
+            # Try using timedelta's total_seconds method
+            duration_seconds = (end_time - start_time).total_seconds()
+        except AttributeError:
+            # If we get a numpy.float64 instead of a timedelta, convert it manually
+            if isinstance(end_time, np.datetime64) and isinstance(
+                start_time, np.datetime64
+            ):
+                # Convert numpy datetime64 to seconds
+                duration_seconds = (end_time - start_time) / np.timedelta64(1, "s")
+            else:
+                # As a fallback, try to calculate the difference directly
+                duration_seconds = float(end_time) - float(start_time)
+                if duration_seconds <= 0:
+                    # If calculation fails or gives negative value, use sample count and metadata
+                    logger.warning(
+                        "Could not calculate proper duration, using sample count and metadata sampling rate"
+                    )
+                    # Use metadata sampling rate if available
+                    if metadata_sampling_rate and metadata_sampling_rate > 0:
+                        duration_seconds = sample_count / metadata_sampling_rate
+                        logger.info(
+                            f"Calculated duration using metadata sampling rate: {duration_seconds} sec"
+                        )
+                    else:
+                        logger.warning(
+                            "No valid sampling rate available, cannot determine duration"
+                        )
+                        duration_seconds = 0
+
+        # Get sampling rate (samples per second) - use metadata if available, otherwise calculate
+        if metadata_sampling_rate and metadata_sampling_rate > 0:
+            sampling_rate = metadata_sampling_rate
+            logger.info(f"Using sampling rate from metadata: {sampling_rate} Hz")
+        elif sample_count > 1 and duration_seconds > 0:
             sampling_rate = sample_count / duration_seconds
+            logger.info(f"Calculated sampling rate from data: {sampling_rate} Hz")
         else:
             sampling_rate = None
+            logger.warning("Could not determine sampling rate")
 
         # Convert DataFrame to dictionary format suitable for JSON serialization
         data_dict = {
-            "times": data_frame.index.astype(np.int64)
-            // 10**6,  # Convert to milliseconds
-            "channels": {},
             "is_empty": False,
             "samples": sample_count,
-            "duration_seconds": duration_seconds,
-            "sampling_rate": sampling_rate,
-            "start_time": start_time.timestamp() * 1000,  # Convert to milliseconds
-            "end_time": end_time.timestamp() * 1000,  # Convert to milliseconds
+            "duration_seconds": float(duration_seconds),  # Ensure it's a Python float
+            "sampling_rate": (
+                float(sampling_rate) if sampling_rate is not None else None
+            ),
+            "channels": {},
         }
+
+        # Safely convert timestamps to milliseconds
+        try:
+            data_dict["times"] = data_frame.index.astype(np.int64) // 10**6
+            data_dict["start_time"] = start_time.timestamp() * 1000
+            data_dict["end_time"] = end_time.timestamp() * 1000
+        except (AttributeError, TypeError):
+            # If we can't convert directly, try an alternative approach
+            logger.warning(
+                "Could not convert timestamps directly, using index positions"
+            )
+            # Use sample indices as time placeholder (0-based)
+            data_dict["times"] = list(range(sample_count))
+            # Set approximate start/end times based on duration
+            try:
+                if hasattr(start_time, "timestamp"):
+                    data_dict["start_time"] = start_time.timestamp() * 1000
+                    data_dict["end_time"] = end_time.timestamp() * 1000
+                else:
+                    # Use epoch time as fallback
+                    data_dict["start_time"] = 0
+                    data_dict["end_time"] = duration_seconds * 1000
+            except:
+                data_dict["start_time"] = 0
+                data_dict["end_time"] = duration_seconds * 1000
 
         # Convert each channel data to list
         for channel_id in channel_ids:
             if channel_id in data_frame.columns:
-                data_dict["channels"][channel_id] = data_frame[channel_id].tolist()
+                # Convert numpy values to native Python types
+                data_dict["channels"][channel_id] = [
+                    float(x) for x in data_frame[channel_id].tolist()
+                ]
 
         return data_dict
 
