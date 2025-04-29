@@ -20,6 +20,12 @@ def create_app():
     # Enable CORS
     CORS(app)
 
+    # Create data directories
+    base_dir = os.getcwd()
+    data_input_dir = os.path.join(base_dir, "data", "input")
+    os.makedirs(data_input_dir, exist_ok=True)
+    logger.info(f"Ensured data input directory exists: {data_input_dir}")
+
     # Register blueprints
     from app.backend.routes import api_bp, init_services
 

@@ -451,14 +451,22 @@ def retrieve_data_segment():
             return jsonify({"error": "No data found for the specified parameters"}), 404
 
         try:
-            # Create the data/input directory if it doesn't exist
-            input_dir = os.path.join(os.getcwd(), "data", "input")
-            os.makedirs(input_dir, exist_ok=True)
-            logger.info(f"Created/verified input directory: {input_dir}")
+            # Create the base data/input directory if it doesn't exist
+            base_input_dir = os.path.join(os.getcwd(), "data", "input")
+            os.makedirs(base_input_dir, exist_ok=True)
+            logger.info(f"Created/verified base input directory: {base_input_dir}")
+
+            # Generate a timestamp for the folder
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            # Create a timestamped folder within the data/input directory
+            timestamped_dir = os.path.join(base_input_dir, timestamp)
+            os.makedirs(timestamped_dir, exist_ok=True)
+            logger.info(f"Created timestamped directory: {timestamped_dir}")
 
             # Create the output file path
             output_csv = f"{output_filename}.csv"
-            output_path = os.path.join(input_dir, output_csv)
+            output_path = os.path.join(timestamped_dir, output_csv)
             logger.info(f"Output file path: {output_path}")
 
             # Convert the data to a pandas DataFrame for saving to CSV
@@ -517,7 +525,7 @@ def retrieve_data_segment():
             # Create metadata file with information about the data segment
             try:
                 metadata_filename = f"{output_filename}.meta.json"
-                metadata_path = os.path.join(input_dir, metadata_filename)
+                metadata_path = os.path.join(timestamped_dir, metadata_filename)
                 logger.info(f"Creating metadata file: {metadata_path}")
 
                 # Get package metadata
@@ -544,7 +552,9 @@ def retrieve_data_segment():
                     "absolute_end_time_ns_epoch": pkg_metadata.get(
                         "time_range", {}
                     ).get("end"),
-                    "retrieved_duration_seconds": int(data.get("duration_seconds")/1e6),
+                    "retrieved_duration_seconds": int(
+                        data.get("duration_seconds") / 1e6
+                    ),
                     "sampling_rate": pkg_metadata.get("time_range", {}).get(
                         "sampling_rate"
                     ),
@@ -569,10 +579,11 @@ def retrieve_data_segment():
                 file_size = 0
 
             # Return success response with file path
-            relative_path = os.path.join("data", "input", output_csv)
+            relative_path = os.path.join("data", "input", timestamp, output_csv)
             response_data = {
                 "success": True,
                 "output_path": relative_path,
+                "timestamp_folder": timestamp,
                 "samples": data.get("samples", 0),
                 "duration_seconds": data.get(
                     "duration_seconds", end_time_seconds - start_time_seconds
