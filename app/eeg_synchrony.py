@@ -2,10 +2,15 @@ import os
 import glob
 import mne
 import numpy as np
+
+# Set matplotlib to use a non-interactive backend to avoid GUI thread issues
+import matplotlib
+
+matplotlib.use("Agg")  # Use the 'Agg' backend which doesn't require a GUI
 import matplotlib.pyplot as plt
 import logging
 from scipy.signal import butter, filtfilt, iirnotch, hilbert
-from s3_operations import S3Operations
+from app.s3_operations import S3Operations
 from dotenv import load_dotenv
 
 # Configure logging

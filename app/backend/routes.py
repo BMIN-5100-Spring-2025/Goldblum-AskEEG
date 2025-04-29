@@ -637,3 +637,229 @@ def retrieve_data_segment():
     except Exception as e:
         logger.error(f"Error processing data segment retrieval: {e}", exc_info=True)
         return jsonify({"error": f"Failed to process request: {str(e)}"}), 500
+
+
+@api_bp.route("/data-files", methods=["GET"])
+@token_required
+def get_data_files():
+    """
+    List data files available in the /data/input directory
+    """
+    try:
+        # Base directory for input files - use a relative path
+        base_dir = os.path.join(os.getcwd(), "data", "input")
+
+        # Ensure the directory exists
+        if not os.path.exists(base_dir):
+            return jsonify({"error": "Input directory does not exist"}), 404
+
+        files = []
+
+        # Walk through the input directory to find all CSV files
+        for root, dirs, filenames in os.walk(base_dir):
+            for filename in filenames:
+                if filename.endswith(".csv"):
+                    file_path = os.path.join(root, filename)
+                    rel_path = os.path.relpath(file_path, start=base_dir)
+
+                    # Create a readable display name
+                    display_name = rel_path
+
+                    # Add to the list
+                    files.append({"path": file_path, "displayName": display_name})
+
+        return jsonify({"files": files}), 200
+    except Exception as e:
+        logger.error(f"Error listing data files: {e}", exc_info=True)
+        return jsonify({"error": str(e), "message": "Failed to list data files"}), 500
+
+
+@api_bp.route("/run-analysis", methods=["POST"])
+@token_required
+def run_analysis():
+    """
+    Run analysis on a data file
+
+    Request Body:
+    - input_file: Path to the input file
+    - analysis_type: Type of analysis to run (currently supports 'eeg_synchrony')
+    - output_name: Name for the output files
+    - selected_bands: List of frequency bands to analyze (for 'eeg_synchrony')
+    """
+    try:
+        # Get request data
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        input_file = data.get("input_file")
+        analysis_type = data.get("analysis_type")
+        output_name = data.get("output_name", "analysis_result")
+
+        # Validate required fields
+        if not input_file:
+            return jsonify({"error": "Input file path is required"}), 400
+        if not analysis_type:
+            return jsonify({"error": "Analysis type is required"}), 400
+
+        # Ensure input file exists
+        if not os.path.exists(input_file):
+            return jsonify({"error": f"Input file {input_file} does not exist"}), 404
+
+        # Create output directory in data/output with relative path
+        base_output_dir = os.path.join(os.getcwd(), "data", "output")
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = os.path.join(base_output_dir, f"{output_name}_{timestamp}")
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Handle different analysis types
+        if analysis_type == "eeg_synchrony":
+            # Get EEG synchrony specific parameters
+            selected_bands = data.get("selected_bands", [])
+
+            if not selected_bands:
+                return (
+                    jsonify({"error": "No frequency bands selected for analysis"}),
+                    400,
+                )
+
+            # Define frequency bands based on selection
+            freq_bands = {}
+            all_bands = {
+                "delta": (0.5, 4),
+                "theta": (4, 8),
+                "alpha": (8, 13),
+                "beta": (13, 30),
+                "gamma": (30, 80),
+            }
+
+            for band in selected_bands:
+                if band in all_bands:
+                    freq_bands[band] = all_bands[band]
+
+            # Run EEG synchrony analysis
+            # First, load the CSV file into a pandas DataFrame
+            try:
+                df = pd.read_csv(input_file)
+
+                # Extract the sample rate from metadata file instead of using a hardcoded value
+                metadata_file = None
+
+                # Determine the metadata file path (we expect it to be in the same directory as input_file)
+                input_dir = os.path.dirname(input_file)
+                input_filename = os.path.basename(input_file)
+                metadata_filename = input_filename.replace(".csv", ".meta.json")
+                metadata_path = os.path.join(input_dir, metadata_filename)
+
+                # Try to read the sampling rate from the metadata file
+                if os.path.exists(metadata_path):
+                    try:
+                        with open(metadata_path, "r") as f:
+                            metadata = json.load(f)
+                            if metadata.get("sampling_rate"):
+                                sample_rate = float(metadata.get("sampling_rate"))
+                                logger.info(
+                                    f"Using sampling rate from metadata file: {sample_rate} Hz"
+                                )
+                            else:
+                                logger.warning(
+                                    f"Metadata file found but no sampling_rate field: {metadata_path}"
+                                )
+                    except Exception as e:
+                        logger.error(f"Error reading metadata file: {e}")
+                else:
+                    logger.warning(
+                        f"Metadata file not found: {metadata_path}, using default sampling rate: {sample_rate} Hz"
+                    )
+
+                # Convert DataFrame to numpy array for analysis
+                data_array = df.iloc[
+                    :, 1:
+                ].values.T  # Transpose to get channels as rows
+
+                # Import eeg_synchrony module
+                from app.eeg_synchrony import (
+                    calculate_synchrony,
+                    bandpass_filter,
+                )
+
+                # Initialize results dictionary
+                results = {}
+
+                # Process each frequency band
+                for band_name, (low_freq, high_freq) in freq_bands.items():
+                    # Apply bandpass filter to isolate frequency band
+                    filtered_data = bandpass_filter(
+                        data_array, low_freq, high_freq, sample_rate
+                    )
+
+                    # Calculate synchrony
+                    r_t, R = calculate_synchrony(filtered_data)
+
+                    # Store results
+                    results[band_name] = {
+                        "r_t": r_t.tolist(),  # Convert numpy array to list for JSON serialization
+                        "mean_synchrony": float(
+                            R
+                        ),  # Ensure it's a Python float for JSON
+                    }
+
+                # Generate plots
+                from app.eeg_synchrony import create_synchrony_plots
+
+                create_synchrony_plots(results, sample_rate, output_dir)
+
+                # Create a dictionary to return to the frontend
+                response_data = {
+                    "message": "Analysis completed successfully",
+                    "timestamp": timestamp,
+                    "output_dir": output_dir,
+                    "synchrony": {
+                        **{
+                            f"{band}_mean": results[band]["mean_synchrony"]
+                            for band in results
+                        }
+                    },
+                    "images": [],
+                }
+
+                # Get static URL base based on the current app's configuration
+                static_url_base = "/static/output"
+
+                # Add generated images to the response
+                for file in os.listdir(output_dir):
+                    if file.endswith(".png"):
+                        # Create a relative path for the image URL
+                        relative_output_dir = f"{output_name}_{timestamp}"
+                        response_data["images"].append(
+                            {
+                                "name": file,
+                                "url": f"{static_url_base}/{relative_output_dir}/{file}",
+                            }
+                        )
+
+                return jsonify(response_data), 200
+
+            except Exception as analysis_error:
+                logger.error(
+                    f"Error during synchrony analysis: {analysis_error}", exc_info=True
+                )
+                return (
+                    jsonify(
+                        {
+                            "error": str(analysis_error),
+                            "message": "Failed to analyze data",
+                        }
+                    ),
+                    500,
+                )
+
+        else:
+            return (
+                jsonify({"error": f"Unsupported analysis type: {analysis_type}"}),
+                400,
+            )
+
+    except Exception as e:
+        logger.error(f"Error running analysis: {e}", exc_info=True)
+        return jsonify({"error": str(e), "message": "Failed to run analysis"}), 500
