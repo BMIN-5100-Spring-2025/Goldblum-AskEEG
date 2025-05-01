@@ -2,10 +2,15 @@ import os
 import glob
 import mne
 import numpy as np
+
+# Set matplotlib to use a non-interactive backend to avoid GUI thread issues
+import matplotlib
+
+matplotlib.use("Agg")  # Use the 'Agg' backend which doesn't require a GUI
 import matplotlib.pyplot as plt
 import logging
 from scipy.signal import butter, filtfilt, iirnotch, hilbert
-from s3_operations import S3Operations
+from app.s3_operations import S3Operations
 from dotenv import load_dotenv
 
 # Configure logging
@@ -112,8 +117,15 @@ def find_edf_file(input_directory):
         return None
 
 
-def create_synchrony_plots(results, fs, output_dir):
-    """Create plots of synchrony results"""
+def create_synchrony_plots(results, fs, output_dir, start_time_seconds=0):
+    """Create plots of synchrony results
+
+    Args:
+        results (dict): Dictionary of analysis results
+        fs (float): Sampling frequency in Hz
+        output_dir (str): Directory to save the plots
+        start_time_seconds (float): Start time of the analyzed segment in seconds
+    """
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
 
@@ -141,7 +153,12 @@ def create_synchrony_plots(results, fs, output_dir):
 
     # Create a combined plot of all bands
     plt.figure(figsize=(15, 8))
-    time_secs = np.arange(len(next(iter(results.values()))["r_t"])) / fs
+
+    # Use start_time_seconds for proper time axis
+    samples = len(next(iter(results.values()))["r_t"])
+    time_secs = np.linspace(
+        start_time_seconds, start_time_seconds + samples / fs, samples
+    )
 
     for band_name in results:
         plt.plot(
@@ -167,7 +184,11 @@ def create_synchrony_plots(results, fs, output_dir):
     # Plot time-varying synchrony for each band
     for band in results:
         r_t = results[band]["r_t"]
-        time = np.arange(len(r_t)) / fs
+
+        # Use start_time_seconds for proper time axis
+        time = np.linspace(
+            start_time_seconds, start_time_seconds + len(r_t) / fs, len(r_t)
+        )
 
         plt.figure(figsize=(12, 6))
         plt.plot(time, r_t)
@@ -200,12 +221,16 @@ def create_synchrony_plots(results, fs, output_dir):
     band_names = list(results.keys())
     synchrony_matrix = np.vstack([results[band]["r_t"] for band in band_names])
 
-    # Plot heatmap
+    # Calculate end time for correct x-axis
+    duration = len(next(iter(results.values()))["r_t"]) / fs
+    end_time = start_time_seconds + duration
+
+    # Plot heatmap with correct time range
     im = plt.imshow(
         synchrony_matrix,
         aspect="auto",
         cmap="viridis",
-        extent=[0, time_secs[-1], 0, len(band_names)],
+        extent=[start_time_seconds, end_time, 0, len(band_names)],
         vmin=0,
         vmax=1,
     )
@@ -228,13 +253,17 @@ def create_synchrony_plots(results, fs, output_dir):
     plt.close()
 
 
-def analyze_synchrony_from_edf(input_path, output_dir, freq_bands=None):
+def analyze_synchrony_from_edf(
+    input_path, output_dir, freq_bands=None, start_time_seconds=0, end_time_seconds=None
+):
     """
     Analyze synchrony from an EDF file
     Args:
         input_path (str): Path to the EDF file
         output_dir (str): Directory to save the results
         freq_bands (dict): Dictionary of frequency bands to analyze
+        start_time_seconds (float): Start time in seconds to analyze (default: 0)
+        end_time_seconds (float): End time in seconds to analyze (default: full recording)
     Returns:
         results (dict): Dictionary of results
     """
@@ -255,6 +284,13 @@ def analyze_synchrony_from_edf(input_path, output_dir, freq_bands=None):
     # Get channel names and data
     ch_names = raw.ch_names
     fs = raw.info["sfreq"]
+
+    # Apply time cropping if end_time_seconds is specified
+    if end_time_seconds is not None:
+        raw.crop(start_time_seconds, end_time_seconds)
+    elif start_time_seconds > 0:
+        raw.crop(tmin=start_time_seconds)
+
     data = raw.get_data()
 
     # Print data stats
@@ -310,6 +346,7 @@ def analyze_synchrony_from_edf(input_path, output_dir, freq_bands=None):
         frequency_bands=freq_bands,
         sampling_rate=fs,
         channel_names=ch_names,
+        start_time_seconds=start_time_seconds,
         **{f"{band}_rt": results[band]["r_t"] for band in results},
         **{f"{band}_mean": results[band]["mean_synchrony"] for band in results},
     )
@@ -317,7 +354,7 @@ def analyze_synchrony_from_edf(input_path, output_dir, freq_bands=None):
     print(f"Results saved to {results_path}")
 
     # Create plots
-    create_synchrony_plots(results, fs, output_dir)
+    create_synchrony_plots(results, fs, output_dir, start_time_seconds)
 
     return results
 
